@@ -3,11 +3,13 @@ import { buildCollection } from "firecms";
 export type AudioDoc = {
   id?: string;
   titre?: string;
+  sousTitre?: string;
   section?: string;
   sousCategorie?: string;
   categorie?: string;
   type?: string;
   disponible?: boolean;
+  premium?: boolean;
   url?: string;
   assetPath?: string;
 };
@@ -44,6 +46,7 @@ export const audiosCollection = buildCollection<AudioDoc>({
         values.categorie = g.categorie;
       }
       values.disponible = !!values.url;
+      values.premium = !!values.premium;
       return values;
     },
   },
@@ -52,6 +55,11 @@ export const audiosCollection = buildCollection<AudioDoc>({
       name: "Titre",
       dataType: "string",
       validation: { required: true },
+    },
+    sousTitre: {
+      name: "Sous-titre",
+      description: "Optionnel : court texte affiché sous le titre.",
+      dataType: "string",
     },
     sousCategorie: {
       name: "Catégorie",
@@ -71,6 +79,13 @@ export const audiosCollection = buildCollection<AudioDoc>({
       dataType: "string",
       defaultValue: "audio",
       enumValues: { audio: "Audio", mantra: "Mantra" },
+    },
+    premium: {
+      name: "Premium",
+      description:
+        "Si activé, l'audio nécessite un abonnement pour être écouté. Désactivé = écoute libre.",
+      dataType: "boolean",
+      defaultValue: false,
     },
     url: {
       name: "Fichier audio",
