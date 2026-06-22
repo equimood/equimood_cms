@@ -5,10 +5,11 @@ import { firebaseConfig } from "./firebase-config";
 import { audiosCollection } from "./collections/audios";
 import { videosCollection } from "./collections/videos";
 import { notificationsCollection } from "./collections/notifications";
+import { usersCollection } from "./collections/users";
 
 // ⚠️ Whitelist d'emails autorisés à accéder au CMS.
 const ADMIN_EMAILS = [
-  "emiliecolli@orange.fr",
+  "equimood.app@gmail.com",
   "dahmoun.jason@gmail.com",
   "contact@depanncar.com",
   "enzo41350@gmail.com",
@@ -31,7 +32,7 @@ export default function App() {
     <FirebaseCMSApp
       name="EquiMood — CMS"
       authentication={myAuthenticator}
-      collections={[audiosCollection, videosCollection, notificationsCollection]}
+      collections={[audiosCollection, videosCollection, notificationsCollection, usersCollection]}
       firebaseConfig={firebaseConfig}
       signInOptions={["password", "google.com"]}
     />
