@@ -1,4 +1,4 @@
-import { buildCollection } from "firecms";
+import { AdditionalFieldDelegate, buildCollection } from "firecms";
 import { GeoPoint } from "firebase/firestore";
 
 export type LikeDoc = {
@@ -14,6 +14,16 @@ export type UserDoc = {
   discipline?: string;
   email?: string;
   premium?: boolean;
+  // Origine du premium. "manual" = offert par un admin depuis le CMS.
+  // Les vrais abonnés payants n'ont pas ce champ mais ont productId/subscriptionStatus.
+  premiumSource?: string | null;
+  premiumGrantedBy?: string | null;
+  premiumGrantedAt?: Date | null;
+  // Champs écrits par le webhook RevenueCat (présents => abonné payant).
+  subscriptionStatus?: string;
+  productId?: string;
+  expireAt?: number;
+  subscriptionUpdatedAt?: Date;
   userProfileImage?: {
     url?: string;
     compressedUrl?: string;
@@ -40,10 +50,28 @@ const likesCollection = buildCollection<LikeDoc>({
 });
 
 /**
+ * Colonne calculée "Statut premium" : distingue d'un coup d'œil un abonné payant
+ * (souscrit lui-même via le store) d'un premium offert manuellement par un admin.
+ */
+const statutPremiumField: AdditionalFieldDelegate<UserDoc> = {
+  id: "statutPremium",
+  name: "Statut premium",
+  Builder: ({ entity }) => {
+    const d = entity.values;
+    if (d.productId || d.subscriptionStatus) return "🟢 Abonné payant";
+    if (d.premium && d.premiumSource === "manual") return "🎁 Premium manuel";
+    return "⚪️ Aucun";
+  },
+};
+
+/**
  * Collection "Utilisateurs" (path: users).
- * Consultation des comptes utilisateurs et de TOUS leurs champs.
  * Le document est identifié par l'UID Firebase Auth.
- * Lecture seule : les données sont écrites par l'app et les webhooks (RevenueCat).
+ *
+ * Seul le champ "Premium" est modifiable : le cocher OFFRE gratuitement l'accès
+ * premium à un utilisateur NON-abonné (ami, testeur, cadeau). Un garde-fou empêche
+ * de modifier le premium d'un abonné payant. Tous les autres champs sont en lecture
+ * seule (écrits par l'app et le webhook RevenueCat).
  */
 export const usersCollection = buildCollection<UserDoc>({
   name: "Utilisateurs",
@@ -52,9 +80,38 @@ export const usersCollection = buildCollection<UserDoc>({
   icon: "Person",
   group: "Utilisateurs",
   description:
-    "Comptes utilisateurs (identifiés par l'UID Firebase Auth) et tous leurs champs. Lecture seule.",
-  permissions: () => ({ read: true, edit: false, create: false, delete: false }),
+    "Comptes utilisateurs (UID Firebase Auth). Coche « Premium » pour OFFRIR gratuitement l'accès à un utilisateur non-abonné. Ne modifie pas un abonné payant (colonne « Statut premium »).",
+  permissions: () => ({ read: true, edit: true, create: false, delete: false }),
   subcollections: [likesCollection],
+  additionalFields: [statutPremiumField],
+  callbacks: {
+    onPreSave: ({ values, previousValues, context }) => {
+      const prev = previousValues ?? {};
+      const isRealSubscriber = Boolean(prev.productId || prev.subscriptionStatus);
+      const premiumChanged = values.premium !== prev.premium;
+
+      // Garde-fou : on ne touche jamais au premium d'un abonné payant.
+      if (isRealSubscriber && premiumChanged) {
+        throw new Error(
+          "Impossible de modifier le premium d'un abonné payant depuis le CMS."
+        );
+      }
+
+      if (values.premium && !prev.premium) {
+        // Don manuel : on trace l'origine, l'admin et la date.
+        values.premiumSource = "manual";
+        values.premiumGrantedBy = context.authController.user?.email ?? "inconnu";
+        values.premiumGrantedAt = new Date();
+      } else if (!values.premium && prev.premium) {
+        // Retrait d'un don manuel : on nettoie les métadonnées.
+        values.premiumSource = null;
+        values.premiumGrantedBy = null;
+        values.premiumGrantedAt = null;
+      }
+
+      return values;
+    },
+  },
   properties: {
     uid: {
       name: "UID",
@@ -85,8 +142,48 @@ export const usersCollection = buildCollection<UserDoc>({
     },
     premium: {
       name: "Premium",
-      description: "Statut d'abonnement (géré par le webhook RevenueCat).",
+      description:
+        "Cocher pour OFFRIR le premium gratuitement (utilisateur non-abonné). Ne pas modifier un abonné payant.",
       dataType: "boolean",
+    },
+    premiumSource: {
+      name: "Origine du premium",
+      description: "« Offert (manuel) » = accordé par un admin. Vide = abonné payant ou aucun.",
+      dataType: "string",
+      readOnly: true,
+      enumValues: {
+        manual: "Offert (manuel)",
+      },
+    },
+    productId: {
+      name: "Produit d'abonnement",
+      description: "Renseigné pour un abonné payant (webhook RevenueCat).",
+      dataType: "string",
+      readOnly: true,
+    },
+    subscriptionStatus: {
+      name: "Statut abonnement (RevenueCat)",
+      dataType: "string",
+      readOnly: true,
+    },
+    expireAt: {
+      name: "Abonnement expire le (ms)",
+      dataType: "number",
+      readOnly: true,
+    },
+    subscriptionUpdatedAt: {
+      name: "Abonnement mis à jour le",
+      dataType: "date",
+      readOnly: true,
+    },
+    premiumGrantedBy: {
+      name: "Premium offert par",
+      dataType: "string",
+      readOnly: true,
+    },
+    premiumGrantedAt: {
+      name: "Premium offert le",
+      dataType: "date",
       readOnly: true,
     },
     userProfileImage: {
